@@ -18,6 +18,12 @@
         "default": "gemini-3-pro-image-preview",
         "hint": "对应渠道支持的模型 ID"
     },
+    "timeout": {
+        "description": "API 请求超时时间 (秒)",
+        "type": "int",
+        "default": 120,
+        "hint": "建议设置在 60-180 秒之间，防止复杂任务中断"
+    },
     "cost_per_image": {
         "description": "【经济】单次生图消耗积分",
         "type": "int",
