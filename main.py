@@ -99,14 +99,12 @@ class ArcadiaMint(Star):
         gid = event.get_group_id()
         uid = event.get_sender_id()
         
-        # 1. 管理员特权 (可选，这里暂未实现管理员免额度)
-        
-        # 2. 白名单检查
+        # 1. 白名单检查
         whitelist = self.config.get("group_whitelist", [])
         if whitelist and gid and str(gid) not in whitelist:
-            return False, "" # 非白名单群，静默忽略，不发送任何提示
+            return False, "" # 非白名单群，静默忽略
 
-        # 3. 群组限流检查
+        # 2. 群组限流检查
         limit = self.config.get("rate_limit_max", 5)
         if gid and limit > 0:
             async with self.rate_limit_lock:
@@ -118,12 +116,12 @@ class ArcadiaMint(Star):
                     start, count = now, 0 
                 
                 if count >= limit:
-                    return False, "🚫 本群调用太频繁 (Triggered Rate Limit)，请稍后再试。"
+                    return False, "🚫 本群调用太频繁 (Rate Limit)，请稍后再试。"
                 
                 # 更新计数
                 self.rate_limit_state[str(gid)] = (start, count + 1)
 
-        # 4. 余额检查
+        # 3. 余额检查
         cost = self.config.get("cost_per_image", 10)
         current_pts = self._get_points(uid)
         if current_pts < cost:
@@ -170,10 +168,11 @@ class ArcadiaMint(Star):
             if msg: yield event.plain_result(msg)
             return
 
-        cost = self.config.get("cost_per_image", 10)
         yield event.plain_result(f"🎨 正在绘制 (gen) ...")
         
-        await self._execute_generation(event, prompt, None)
+        # 【修复】使用 async for 迭代生成器
+        async for res in self._execute_generation(event, prompt, None):
+            yield res
 
     @filter.command("alt")
     async def alt_image(self, event: AstrMessageEvent, prompt: str = ""):
@@ -191,7 +190,10 @@ class ArcadiaMint(Star):
             return
 
         yield event.plain_result(f"🎨 正在重绘 (alt) ...")
-        await self._execute_generation(event, prompt, images)
+        
+        # 【修复】使用 async for 迭代生成器
+        async for res in self._execute_generation(event, prompt, images):
+            yield res
 
     @filter.command("met")
     async def met_image(self, event: AstrMessageEvent, style: str = ""):
@@ -221,10 +223,13 @@ class ArcadiaMint(Star):
             return
 
         yield event.plain_result(f"🎨 正在变身 (met: {style})...")
-        await self._execute_generation(event, final_prompt, images)
+        
+        # 【修复】使用 async for 迭代生成器
+        async for res in self._execute_generation(event, final_prompt, images):
+            yield res
 
     async def _execute_generation(self, event, prompt, images):
-        """统一的生成执行与扣费逻辑"""
+        """统一的生成执行与扣费逻辑 (这是一个异步生成器)"""
         # 1. 调用 TTP 驱动
         path, err = await ttp.generate_image(
             prompt=prompt,
@@ -245,7 +250,6 @@ class ArcadiaMint(Star):
                     Plain(f" | ✅ 消耗 {cost} 积分")
                 ])
             else:
-                # 理论上风控检查过了不会进这里，但防止并发扣费
                 yield event.plain_result("❌ 扣费失败，可能是并发导致余额不足。")
         else:
             yield event.plain_result(f"❌ 生成失败: {err}")
@@ -260,7 +264,6 @@ class ArcadiaMint(Star):
     @filter.command("Arcadia添加Key")
     async def add_key(self, event: AstrMessageEvent, key: str):
         """管理员添加 Key"""
-        # 简单鉴权：检查是否为超级管理员 (需在 AstrBot 全局配置设置 admins_id)
         admin_ids = self.context.get_config().get("admins_id", [])
         if event.get_sender_id() not in admin_ids:
             return 
@@ -268,7 +271,7 @@ class ArcadiaMint(Star):
         keys = self.config.get("api_keys", [])
         if key not in keys:
             keys.append(key)
-            await self.config.save_config() # 保存配置
+            await self.config.save_config()
             yield event.plain_result(f"✅ Key 添加成功，当前共有 {len(keys)} 个 Key。")
         else:
             yield event.plain_result("Key 已存在。")
